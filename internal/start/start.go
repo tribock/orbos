@@ -2,11 +2,17 @@ package start
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"github.com/caos/orbos/internal/executables"
 	"github.com/caos/orbos/internal/git"
 	"github.com/caos/orbos/internal/ingestion"
 	"github.com/caos/orbos/internal/operator/boom"
+	"github.com/caos/orbos/internal/operator/nodeagent"
+	"github.com/caos/orbos/internal/operator/nodeagent/dep"
+	"github.com/caos/orbos/internal/operator/nodeagent/dep/conv"
+	"github.com/caos/orbos/internal/operator/nodeagent/firewall"
 	"github.com/caos/orbos/internal/operator/orbiter"
 	"github.com/caos/orbos/internal/operator/orbiter/kinds/orb"
 	"github.com/caos/orbos/internal/operator/secretfuncs"
@@ -17,10 +23,67 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"google.golang.org/grpc"
+	"io/ioutil"
 	"runtime/debug"
 	"strings"
 	"time"
 )
+
+type NodeAgentConfig struct {
+	GitCommit   string
+	NodeAgentID string
+	IgnorePorts string
+	RepoURL     string
+}
+
+func NodeAgent(monitor mntr.Monitor, naconfig *NodeAgentConfig) error {
+	os, err := dep.GetOperatingSystem()
+	if err != nil {
+		panic(err)
+	}
+
+	repoKeyPath := "/etc/nodeagent/repokey"
+	repoKey, err := ioutil.ReadFile(repoKeyPath)
+	if err != nil {
+		panic(fmt.Sprintf("repokey not found at %s", repoKeyPath))
+	}
+
+	pruned := strings.Split(string(repoKey), "-----")[2]
+	hashed := sha256.Sum256([]byte(pruned))
+	conv := conv.New(monitor, os, fmt.Sprintf("%x", hashed[:]))
+
+	ctx := context.Background()
+	gitClient := git.New(ctx, monitor, fmt.Sprintf("Node Agent %s", naconfig.NodeAgentID), "node-agent@caos.ch", naconfig.RepoURL)
+	if err := gitClient.Init(repoKey); err != nil {
+		panic(err)
+	}
+
+	go func() {
+		takeoffChan := make(chan struct{})
+		go func() {
+			takeoffChan <- struct{}{}
+		}()
+
+		for range takeoffChan {
+			itFunc := nodeagent.Iterator(
+				monitor,
+				gitClient,
+				naconfig.GitCommit,
+				naconfig.NodeAgentID,
+				firewall.Ensurer(monitor, os.OperatingSystem, strings.Split(naconfig.IgnorePorts, ",")),
+				conv,
+				conv.Init())
+
+			go func() {
+				itFunc()
+				monitor.Info("Iteration done")
+				time.Sleep(10 * time.Second)
+				takeoffChan <- struct{}{}
+			}()
+		}
+	}()
+	return nil
+}
 
 type OrbiterConfig struct {
 	Recur            bool

@@ -1,22 +1,11 @@
 package main
 
 import (
-	"context"
-	"crypto/sha256"
 	"flag"
 	"fmt"
-	"io/ioutil"
-	"os"
-	"strings"
-	"time"
-
-	"github.com/caos/orbos/internal/git"
+	"github.com/caos/orbos/internal/start"
 	"github.com/caos/orbos/mntr"
-
-	"github.com/caos/orbos/internal/operator/nodeagent"
-	"github.com/caos/orbos/internal/operator/nodeagent/dep"
-	"github.com/caos/orbos/internal/operator/nodeagent/dep/conv"
-	"github.com/caos/orbos/internal/operator/nodeagent/firewall"
+	"os"
 )
 
 var gitCommit string
@@ -66,39 +55,15 @@ func main() {
 		"nodeAgentID": *nodeAgentID,
 	}).Info("Node Agent is starting")
 
-	os, err := dep.GetOperatingSystem()
-	if err != nil {
-		panic(err)
+	naconfig := &start.NodeAgentConfig{
+		GitCommit:   gitCommit,
+		NodeAgentID: *nodeAgentID,
+		IgnorePorts: *ignorePorts,
+		RepoURL:     *repoURL,
 	}
 
-	repoKeyPath := "/etc/nodeagent/repokey"
-	repoKey, err := ioutil.ReadFile(repoKeyPath)
-	if err != nil {
-		panic(fmt.Sprintf("repokey not found at %s", repoKeyPath))
-	}
-
-	pruned := strings.Split(string(repoKey), "-----")[2]
-	hashed := sha256.Sum256([]byte(pruned))
-	conv := conv.New(monitor, os, fmt.Sprintf("%x", hashed[:]))
-
-	ctx := context.Background()
-	gitClient := git.New(ctx, monitor, fmt.Sprintf("Node Agent %s", *nodeAgentID), "node-agent@caos.ch", *repoURL)
-	if err := gitClient.Init(repoKey); err != nil {
-		panic(err)
-	}
-
-	itFunc := nodeagent.Iterator(
-		monitor,
-		gitClient,
-		gitCommit,
-		*nodeAgentID,
-		firewall.Ensurer(monitor, os.OperatingSystem, strings.Split(*ignorePorts, ",")),
-		conv,
-		conv.Init())
-
-	for {
-		itFunc()
-		monitor.Info("Iteration done")
-		time.Sleep(10 * time.Second)
+	if err := start.NodeAgent(monitor, naconfig); err != nil {
+		fmt.Println(err.Error())
+		os.Exit(0)
 	}
 }
