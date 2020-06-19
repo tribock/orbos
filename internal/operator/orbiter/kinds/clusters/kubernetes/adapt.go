@@ -16,7 +16,6 @@ var deployErrors int
 
 func AdaptFunc(
 	orb *orb.Orb,
-	orbiterCommit string,
 	clusterID string,
 	oneoff bool,
 	deployOrbiter bool,
@@ -116,8 +115,8 @@ func AdaptFunc(
 			Current: current,
 		}
 
-                go func(){
-		    finishedChan <- finished
+		go func() {
+			finishedChan <- finished
 		}()
 
 		return func(nodeAgentsCurrent map[string]*common.NodeAgentCurrent, nodeAgentsDesired map[string]*common.NodeAgentSpec, providers map[string]interface{}) (orbiter.EnsureFunc, error) {
@@ -130,9 +129,6 @@ func AdaptFunc(
 					nodeAgentsCurrent,
 					nodeAgentsDesired,
 					k8sClient,
-					orb.URL,
-					orb.Repokey,
-					orbiterCommit,
 					oneoff)
 				return ensureFunc, errors.Wrapf(err, "querying %s failed", desiredKind.Common.Kind)
 			}, func() error {
@@ -148,7 +144,7 @@ func AdaptFunc(
 				desiredKind.Spec.Kubeconfig = nil
 
 				destroyFunc := func() error {
-					return destroy(monitor, providers, k8sClient)
+					return destroy(providers, k8sClient)
 				}
 
 				return orbiter.DestroyFuncGoroutine(destroyFunc)

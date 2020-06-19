@@ -140,32 +140,36 @@ func (g *Grafana) SpecToHelmValues(monitor mntr.Monitor, toolset *toolsetsv1beta
 		if toolset.Grafana.Auth != nil {
 			if toolset.Grafana.Auth.Google != nil {
 				google, err := auth.GetGoogleAuthConfig(toolset.Grafana.Auth.Google)
-				if err == nil {
+				if err == nil && google != nil {
 					values.Grafana.Ini.AuthGoogle = google
 				}
 			}
 
 			if toolset.Grafana.Auth.Github != nil {
 				github, err := auth.GetGithubAuthConfig(toolset.Grafana.Auth.Github)
-				if err == nil {
+				if err == nil && github != nil {
 					values.Grafana.Ini.AuthGithub = github
 				}
 			}
 
 			if toolset.Grafana.Auth.Gitlab != nil {
 				gitlab, err := auth.GetGitlabAuthConfig(toolset.Grafana.Auth.Gitlab)
-				if err == nil {
+				if err == nil && gitlab != nil {
 					values.Grafana.Ini.AuthGitlab = gitlab
 				}
 			}
 
 			if toolset.Grafana.Auth.GenericOAuth != nil {
 				generic, err := auth.GetGenericOAuthConfig(toolset.Grafana.Auth.GenericOAuth)
-				if err == nil {
+				if err == nil && generic != nil {
 					values.Grafana.Ini.AuthGeneric = generic
 				}
 			}
 		}
+	}
+
+	if toolset.Grafana.Plugins != nil && len(toolset.Grafana.Plugins) > 0 {
+		values.Grafana.Plugins = append(values.Grafana.Plugins, toolset.Grafana.Plugins...)
 	}
 
 	return values
@@ -175,7 +179,7 @@ func getKustomizeOutput(folders []string) ([]string, error) {
 	ret := make([]string, len(folders))
 	for n, folder := range folders {
 
-		cmd, err := kustomize.New(folder, false, false)
+		cmd, err := kustomize.New(folder)
 		if err != nil {
 			return nil, err
 		}
