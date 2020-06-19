@@ -58,30 +58,28 @@ func NodeAgent(monitor mntr.Monitor, naconfig *NodeAgentConfig) error {
 		panic(err)
 	}
 
+	takeoffChan := make(chan struct{})
 	go func() {
-		takeoffChan := make(chan struct{})
+		takeoffChan <- struct{}{}
+	}()
+
+	for range takeoffChan {
+		itFunc := nodeagent.Iterator(
+			monitor,
+			gitClient,
+			naconfig.GitCommit,
+			naconfig.NodeAgentID,
+			firewall.Ensurer(monitor, os.OperatingSystem, strings.Split(naconfig.IgnorePorts, ",")),
+			conv,
+			conv.Init())
+
 		go func() {
+			itFunc()
+			monitor.Info("Iteration done")
+			time.Sleep(10 * time.Second)
 			takeoffChan <- struct{}{}
 		}()
-
-		for range takeoffChan {
-			itFunc := nodeagent.Iterator(
-				monitor,
-				gitClient,
-				naconfig.GitCommit,
-				naconfig.NodeAgentID,
-				firewall.Ensurer(monitor, os.OperatingSystem, strings.Split(naconfig.IgnorePorts, ",")),
-				conv,
-				conv.Init())
-
-			go func() {
-				itFunc()
-				monitor.Info("Iteration done")
-				time.Sleep(10 * time.Second)
-				takeoffChan <- struct{}{}
-			}()
-		}
-	}()
+	}
 	return nil
 }
 
