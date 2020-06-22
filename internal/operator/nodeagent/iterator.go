@@ -72,7 +72,11 @@ func Iterator(monitor mntr.Monitor, gitClient *git.Client, nodeAgentCommit strin
 			panic(err)
 		}
 
-		ensure, err := doQuery(*naDesired, curr)
+		queryFunc := func() (func() error, error) {
+			return doQuery(*naDesired, curr)
+		}
+
+		ensure, err := queryFuncGoroutine(queryFunc)
 		if err != nil {
 			monitor.Error(err)
 			return
@@ -109,7 +113,7 @@ func Iterator(monitor mntr.Monitor, gitClient *git.Client, nodeAgentCommit strin
 		}
 
 		events = make([]*event, 0)
-		if err := ensure(); err != nil {
+		if err := ensureFuncGoroutine(ensure); err != nil {
 			monitor.Error(err)
 			return
 		}
@@ -136,4 +140,28 @@ func Iterator(monitor mntr.Monitor, gitClient *git.Client, nodeAgentCommit strin
 
 		debug.FreeOSMemory()
 	}
+}
+
+type retQuery struct {
+	ensure func() error
+	err    error
+}
+
+func queryFuncGoroutine(query func() (func() error, error)) (func() error, error) {
+	retChan := make(chan retQuery)
+	go func() {
+		ensure, err := query()
+		retChan <- retQuery{ensure, err}
+	}()
+	ret := <-retChan
+	return ret.ensure, ret.err
+}
+
+func ensureFuncGoroutine(ensure func() error) error {
+	retChan := make(chan error)
+	go func() {
+		err := ensure()
+		retChan <- err
+	}()
+	return <-retChan
 }

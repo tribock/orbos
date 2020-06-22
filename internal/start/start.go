@@ -42,28 +42,29 @@ func NodeAgent(monitor mntr.Monitor, naconfig *NodeAgentConfig) error {
 		panic(err)
 	}
 
-	repoKeyPath := "/etc/nodeagent/repokey"
-	repoKey, err := ioutil.ReadFile(repoKeyPath)
-	if err != nil {
-		panic(fmt.Sprintf("repokey not found at %s", repoKeyPath))
-	}
-
-	pruned := strings.Split(string(repoKey), "-----")[2]
-	hashed := sha256.Sum256([]byte(pruned))
-	conv := conv.New(monitor, os, fmt.Sprintf("%x", hashed[:]))
-
-	ctx := context.Background()
-	gitClient := git.New(ctx, monitor, fmt.Sprintf("Node Agent %s", naconfig.NodeAgentID), "node-agent@caos.ch", naconfig.RepoURL)
-	if err := gitClient.Init(repoKey); err != nil {
-		panic(err)
-	}
-
 	takeoffChan := make(chan struct{})
 	go func() {
 		takeoffChan <- struct{}{}
 	}()
 
 	for range takeoffChan {
+
+		repoKeyPath := "/etc/nodeagent/repokey"
+		repoKey, err := ioutil.ReadFile(repoKeyPath)
+		if err != nil {
+			panic(fmt.Sprintf("repokey not found at %s", repoKeyPath))
+		}
+
+		pruned := strings.Split(string(repoKey), "-----")[2]
+		hashed := sha256.Sum256([]byte(pruned))
+		conv := conv.New(monitor, os, fmt.Sprintf("%x", hashed[:]))
+
+		ctx := context.Background()
+		gitClient := git.New(ctx, monitor, fmt.Sprintf("Node Agent %s", naconfig.NodeAgentID), "node-agent@caos.ch", naconfig.RepoURL)
+		if err := gitClient.Init(repoKey); err != nil {
+			panic(err)
+		}
+
 		itFunc := nodeagent.Iterator(
 			monitor,
 			gitClient,
