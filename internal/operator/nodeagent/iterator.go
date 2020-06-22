@@ -76,7 +76,7 @@ func Iterator(monitor mntr.Monitor, gitClient *git.Client, nodeAgentCommit strin
 			return doQuery(*naDesired, curr)
 		}
 
-		ensure, err := queryFuncGoroutine(queryFunc)
+		ensure, err := queryFuncGoroutineIterator(queryFunc)
 		if err != nil {
 			monitor.Error(err)
 			return
@@ -113,7 +113,7 @@ func Iterator(monitor mntr.Monitor, gitClient *git.Client, nodeAgentCommit strin
 		}
 
 		events = make([]*event, 0)
-		if err := ensureFuncGoroutine(ensure); err != nil {
+		if err := ensureFuncGoroutineIterator(ensure); err != nil {
 			monitor.Error(err)
 			return
 		}
@@ -142,22 +142,22 @@ func Iterator(monitor mntr.Monitor, gitClient *git.Client, nodeAgentCommit strin
 	}
 }
 
-type retQuery struct {
+type retQueryIterator struct {
 	ensure func() error
 	err    error
 }
 
-func queryFuncGoroutine(query func() (func() error, error)) (func() error, error) {
-	retChan := make(chan retQuery)
+func queryFuncGoroutineIterator(query func() (func() error, error)) (func() error, error) {
+	retChan := make(chan retQueryIterator)
 	go func() {
 		ensure, err := query()
-		retChan <- retQuery{ensure, err}
+		retChan <- retQueryIterator{ensure, err}
 	}()
 	ret := <-retChan
 	return ret.ensure, ret.err
 }
 
-func ensureFuncGoroutine(ensure func() error) error {
+func ensureFuncGoroutineIterator(ensure func() error) error {
 	retChan := make(chan error)
 	go func() {
 		err := ensure()

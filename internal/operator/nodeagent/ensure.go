@@ -54,12 +54,21 @@ func prepareQuery(monitor mntr.Monitor, commit string, firewallEnsurer FirewallE
 			err            error
 			ensureFirewall func() error
 		)
-		curr.Open, ensureFirewall, err = firewallEnsurer.Query(*desired.Firewall)
+
+		firewallQueryFunc := func() ([]*common.Allowed, func() error, error) {
+			return firewallEnsurer.Query(*desired.Firewall)
+		}
+
+		curr.Open, ensureFirewall, err = firewallQueryFuncGoroutine(firewallQueryFunc)
 		if err != nil {
 			return noop, err
 		}
 
-		installedSw, err := deriveTraverse(queryFunc(monitor), conv.ToDependencies(*desired.Software))
+		queryFunc := func() func(dep *Dependency) (*Dependency, error) {
+			return queryFunc(monitor)
+		}
+
+		installedSw, err := deriveTraverse(depFuncGoroutine(queryFunc), conv.ToDependencies(*desired.Software))
 		if err != nil {
 			return noop, err
 		}
@@ -88,7 +97,7 @@ func prepareQuery(monitor mntr.Monitor, commit string, firewallEnsurer FirewallE
 			}
 
 			if ensureFirewall != nil {
-				if err := ensureFirewall(); err != nil {
+				if err := firewallEnsureFuncGoroutine(ensureFirewall); err != nil {
 					return err
 				}
 				curr.Open = desired.Firewall.Ports()
@@ -100,11 +109,42 @@ func prepareQuery(monitor mntr.Monitor, commit string, firewallEnsurer FirewallE
 					return dependency.Installer.String()
 				}, divergentSw)).Info("Ensuring software")
 			}
-			ensureDep := ensureFunc(monitor, conv, curr)
+
+			ensureDepFunc := func() func(dep *Dependency) (*Dependency, error) {
+				return ensureFunc(monitor, conv, curr)
+			}
+			ensureDep := depFuncGoroutine(ensureDepFunc)
+
 			_, err := deriveTraverse(ensureDep, divergentSw)
 			return err
 		}, nil
 	}
+}
+
+type firewallQueryRet struct {
+	current []*common.Allowed
+	ensure  func() error
+	err     error
+}
+
+func firewallQueryFuncGoroutine(query func() ([]*common.Allowed, func() error, error)) ([]*common.Allowed, func() error, error) {
+	retChan := make(chan firewallQueryRet)
+	go func() {
+		current, ensure, err := query()
+		retChan <- firewallQueryRet{current, ensure, err}
+	}()
+	ret := <-retChan
+	return ret.current, ret.ensure, ret.err
+}
+
+func firewallEnsureFuncGoroutine(ensure func() error) error {
+	retChan := make(chan error)
+	go func() {
+		err := ensure()
+		retChan <- err
+	}()
+	ret := <-retChan
+	return ret
 }
 
 func queryFunc(monitor mntr.Monitor) func(dep *Dependency) (*Dependency, error) {
@@ -117,6 +157,16 @@ func queryFunc(monitor mntr.Monitor) func(dep *Dependency) (*Dependency, error) 
 		monitor.Debug("Dependency found")
 		return dep, nil
 	}
+}
+
+func depFuncGoroutine(query func() func(dep *Dependency) (*Dependency, error)) func(dep *Dependency) (*Dependency, error) {
+	retChan := make(chan func(dep *Dependency) (*Dependency, error))
+	go func() {
+		dep := query()
+		retChan <- dep
+	}()
+	ret := <-retChan
+	return ret
 }
 
 func divergent(dep *Dependency) bool {
