@@ -96,7 +96,7 @@ func Iterator(monitor mntr.Monitor, gitClient *git.Client, nodeAgentCommit strin
 			return current
 		}
 
-		current := readCurrent()
+		current := readCurrentGoroutine(readCurrent)
 		current.Current[id] = curr
 
 		reconciledCurrentStateMsg := "Current state reconciled"
@@ -118,7 +118,7 @@ func Iterator(monitor mntr.Monitor, gitClient *git.Client, nodeAgentCommit strin
 			return
 		}
 
-		current = readCurrent()
+		current = readCurrentGoroutine(readCurrent)
 
 		for _, event := range events {
 			current.Current[id] = event.current
@@ -162,6 +162,15 @@ func ensureFuncGoroutineIterator(ensure func() error) error {
 	go func() {
 		err := ensure()
 		retChan <- err
+	}()
+	return <-retChan
+}
+
+func readCurrentGoroutine(readCurrent func() common.NodeAgentsCurrentKind) common.NodeAgentsCurrentKind {
+	retChan := make(chan common.NodeAgentsCurrentKind)
+	go func() {
+		current := readCurrent()
+		retChan <- current
 	}()
 	return <-retChan
 }
